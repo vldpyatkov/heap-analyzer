@@ -45,6 +45,7 @@ public class DumpObj {
             .addOption("h", "hprof", true, "Java heap dump file.")
             .addOption("id", "object-id", true, "Object id as decimal long.")
             .addOption("pn", "property-name", true, "Name of property (using with id).")
+            .addOption("po", "prune-older-reference", false, "Prune older object from size calculation.")
             .addOption("c", "class-name", true, "Full class name.");
 
         parser = new DefaultParser();
@@ -69,6 +70,8 @@ public class DumpObj {
 
             log("Heap loaded. Searching for biggest classes...");
 
+            boolean prune = cmd.hasOption("po");
+
             if (cmd.hasOption("id")) {
                 long objId = Long.valueOf(cmd.getOptionValue("id"));
 
@@ -76,7 +79,7 @@ public class DumpObj {
 
                 log("Claculating size of object " + objId + " (" + Long.toHexString(objId) + ") proprty " + propName);
 
-                printInstanceInfoById(heap, objId, propName);
+                printInstanceInfoById(heap, objId, propName, prune);
             }
             else {
                 String className = cmd.getOptionValue("c");
@@ -89,7 +92,7 @@ public class DumpObj {
                     for (Instance inst : jClass.getInstances()) {
                         log("Instance id = " + inst.getInstanceId()
                             + " (" + Long.toHexString(inst.getInstanceId()) + ")"
-                            + " retained size = " + FileUtils.byteCountToDisplaySize(reteinedSize(heap, inst)));
+                            + " retained size = " + FileUtils.byteCountToDisplaySize(reteinedSize(heap, inst, prune)));
                     }
                 }
                 else
@@ -105,71 +108,110 @@ public class DumpObj {
         }
     }
 
-    private static void printInstanceInfoById(Heap heap, long id, String propName) {
+    private static void printInstanceInfoById(Heap heap, long id, String propName, boolean prune) {
         Instance attrInst = heap.getInstanceByID(id);
 
         if (attrInst != null) {
             log("Found instance of " + attrInst.getJavaClass().getName());
 
-            logInstanceInfo(heap, attrInst, propName);
+            logInstanceInfo(heap, attrInst, propName, prune);
         }
         else
             log("No istace found.");
     }
 
-    private static void logInstanceInfo(Heap heap, Instance inst, String propName) {
+    private static void logInstanceInfo(Heap heap, Instance inst, String propName, boolean prune) {
         int propCnt = 0;
 
-        for (FieldValue fVal : inst.getFieldValues()) {
-            if ("*".equals(propName) ||
-                fVal.getField().getName().trim().equalsIgnoreCase(propName)) {
-                log("Filed " + fVal.getField().getName());
+        if ("*".equals(propName) && inst.getClass() == objArray) {
+            try {
+                List<Instance> arrInstances = (List<Instance>)valuesMethod.invoke(inst);
 
-                propCnt++;
+                int idx = 0;
 
-                if (isTypeOf(fVal, "object")
-                    && !fVal.getValue().trim().equals("0")) {
-                    long objId = Long.valueOf(fVal.getValue().trim());
-
-                    Instance propInst = heap.getInstanceByID(objId);
-
-                    log("Instance id = " + propInst.getInstanceId()
-                        + " (" + Long.toHexString(propInst.getInstanceId()) + ")"
-                        + " cls = " + propInst.getJavaClass().getName()
-                        + " retained size = " + FileUtils.byteCountToDisplaySize(reteinedSize(heap, propInst)));
+                for (Instance arrInstance : arrInstances) {
+                    if (arrInstance != null) {
+                        log("[" + idx++
+                            + "] Instance id = " + arrInstance.getInstanceId()
+                            + " (" + Long.toHexString(arrInstance.getInstanceId()) + ")"
+                            + " retained size = " + FileUtils.byteCountToDisplaySize(reteinedSize(heap, arrInstance, prune)));
+                    }
+                    else
+                        log("[" + idx++ + "] is null.");
                 }
-                else if (isTypeOf(fVal, "object")
-                    && fVal.getValue().trim().equals("0"))
-                    log("Instance is null.");
-                else if (isTypeOf(fVal, "byte"))
-                    log("Byte primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "int"))
-                    log("Integer primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "long"))
-                    log("Long primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "float"))
-                    log("Float primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "double"))
-                    log("Double primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "boolean"))
-                    log("Boolean primitive val = " + fVal.getValue());
-                else if (isTypeOf(fVal, "char"))
-                    log("Char primitive val = " + fVal.getValue());
+            }
+            catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+            catch (InvocationTargetException e) {
+                e.printStackTrace();
             }
         }
+        else
+
+            for (FieldValue fVal : inst.getFieldValues()) {
+                if ("*".equals(propName) ||
+                    fVal.getField().getName().trim().equalsIgnoreCase(propName)) {
+
+                    propCnt++;
+
+                    if (isTypeOf(fVal, "object")
+                        && !fVal.getValue().trim().equals("0")) {
+                        long objId = Long.valueOf(fVal.getValue().trim());
+
+                        Instance propInst = heap.getInstanceByID(objId);
+
+                        log(fVal.getField().getName()
+                            + ": Instance id = " + propInst.getInstanceId()
+                            + " (" + Long.toHexString(propInst.getInstanceId()) + ")"
+                            + " cls = " + propInst.getJavaClass().getName()
+                            + " retained size = " + FileUtils.byteCountToDisplaySize(reteinedSize(heap, propInst, prune)));
+                    }
+                    else if (isTypeOf(fVal, "object")
+                        && fVal.getValue().trim().equals("0"))
+                        log(fVal.getField().getName()
+                            + ": Instance is null.");
+                    else if (isTypeOf(fVal, "byte"))
+                        log(fVal.getField().getName()
+                            + ": Byte primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "int"))
+                        log(fVal.getField().getName()
+                            + ": Integer primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "long"))
+                        log(fVal.getField().getName()
+                            + ": Long primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "float"))
+                        log(fVal.getField().getName()
+                            + ": Float primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "double"))
+                        log(fVal.getField().getName()
+                            + ": Double primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "boolean"))
+                        log(fVal.getField().getName()
+                            + ": Boolean primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "char"))
+                        log(fVal.getField().getName()
+                            + ": Char primitive val = " + fVal.getValue());
+                    else if (isTypeOf(fVal, "short"))
+                        log(fVal.getField().getName()
+                            + ": Short primitive val = " + fVal.getValue());
+                }
+            }
 
         if (propCnt == 0)
             log("No property found.");
     }
 
-    private static long reteinedSize(Heap heap, Instance inst) {
+    private static long reteinedSize(Heap heap, Instance inst, boolean prune) {
         Stack<Instance> stack = new Stack<Instance>();
 
         LongHashSet marks = new LongHashSet();
 
         long fullSize = 0;
 
-        marks.add(inst.getInstanceId());
+        long startNodeId = inst.getInstanceId();
+
+        marks.add(startNodeId);
 
         stack.push(inst);
 
@@ -188,7 +230,8 @@ public class DumpObj {
                             long objId = arrInstance.getInstanceId();
 
                             if (!marks.contains(objId)) {
-                                stack.push(arrInstance);
+                                if (!prune || startNodeId < objId)
+                                    stack.push(arrInstance);
 
                                 marks.add(objId);
                             }
@@ -213,7 +256,8 @@ public class DumpObj {
                         if (!marks.contains(objId)) {
                             Instance fInst = heap.getInstanceByID(objId);
 
-                            stack.push(fInst);
+                            if (!prune || startNodeId < objId)
+                                stack.push(fInst);
 
                             marks.add(objId);
                         }
