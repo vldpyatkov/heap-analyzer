@@ -1,8 +1,11 @@
 package HeapAnalyzer;
 
+import HeapAnalyzer.oql.OqlEngine;
 import HeapAnalyzer.util.FileUtils;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Date;
@@ -43,9 +46,11 @@ public class DumpObj {
 
         cliOps = new Options()
             .addOption("h", "hprof", true, "Java heap dump file.")
+            .addOption("oql", "object-query", false, "Query in JavaScript DSL.")
             .addOption("id", "object-id", true, "Object id as decimal long.")
             .addOption("pn", "property-name", true, "Name of property (using with id).")
             .addOption("po", "prune-older-reference", false, "Prune older object from size calculation.")
+            .addOption("pe", "print-exception", false, "Print exception stack traceggg.")
             .addOption("c", "class-name", true, "Full class name.");
 
         parser = new DefaultParser();
@@ -69,6 +74,30 @@ public class DumpObj {
             Heap heap = load(dumppath);
 
             log("Heap loaded. Searching for biggest classes...");
+
+            if (cmd.hasOption("oql")) {
+                log("Waiting to input query.");
+
+                try (BufferedReader buffer=new BufferedReader(new InputStreamReader(System.in))) {
+                    String oqlCmd = null;
+                    while (!(oqlCmd = buffer.readLine()).trim().equalsIgnoreCase("quit")) {
+                        log("Start evaluation...");
+                        long start = System.currentTimeMillis();
+                        try {
+                            OqlEngine.eval(heap, oqlCmd);
+                        }
+                        catch (Exception e) {
+                            log("Script execution throw exception: " + e.getMessage());
+
+                            if (cmd.hasOption("pe"))
+                                e.printStackTrace();
+                        }
+                        log("Complete evaluation: " + (System.currentTimeMillis() - start) + " ms.");
+                    }
+                }
+
+                return;
+            }
 
             boolean prune = cmd.hasOption("po");
 
