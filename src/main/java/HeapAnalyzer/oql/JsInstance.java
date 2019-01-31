@@ -45,6 +45,25 @@ public class JsInstance {
                 e.printStackTrace();
             }
         }
+        else if (inst.getClass() == OqlEngine.OqlContext.primitiveArray) {
+            try {
+                List<Object> arrInstances = (List<Object>)OqlEngine.OqlContext.valuesMethodPrimitive.invoke(inst);
+                byte type = (byte)OqlEngine.OqlContext.typeMethod.invoke(inst);
+
+                int idx = 0;
+
+                for (Object o: arrInstances) {
+                    attributes.add(new JsAttribute(String.valueOf(idx++),
+                        OqlEngine.OqlContext.primitiveTypeMap.get(type), String.valueOf(o)));
+                }
+            }
+            catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+            catch (InvocationTargetException e) {
+                e.printStackTrace();
+            }
+        }
         else {
             for (FieldValue fVal : inst.getFieldValues()) {
                 attributes.add(new JsAttribute(fVal.getField().getName(), fVal.getField().getType().getName(),

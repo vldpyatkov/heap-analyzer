@@ -4,12 +4,18 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Stack;
 import javax.script.ScriptContext;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
+import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
+import org.apache.commons.lang3.builder.ToStringStyle;
+import org.apache.ignite.IgniteCheckedException;
+import org.apache.ignite.marshaller.jdk.JdkMarshaller;
 import org.eclipse.collections.impl.set.mutable.primitive.LongHashSet;
 import org.netbeans.lib.profiler.heap.FieldValue;
 import org.netbeans.lib.profiler.heap.Heap;
@@ -17,6 +23,8 @@ import org.netbeans.lib.profiler.heap.Instance;
 import org.netbeans.lib.profiler.heap.JavaClass;
 
 public class OqlEngine {
+
+    static ScriptEngine engine;
 
     public static ScriptEngine createEngin(Heap heap) {
         ScriptEngineManager engineManager = new ScriptEngineManager();
@@ -29,20 +37,70 @@ public class OqlEngine {
     }
 
     public static void eval(Heap heap, String script) throws ScriptException {
-        ScriptEngine engine = createEngin(heap);
+        if (engine == null)
+            engine = createEngin(heap);
+        else if (script.trim().equalsIgnoreCase("reset")) {
+            engine = createEngin(heap);
+
+            return;
+        }
 
         engine.eval(script);
     }
 
     public static class OqlContext {
-        public static Class<?> objArray = null;
+        public static Class<?> objArray;
+        public static Class<?> primitiveArray;
         public static Method valuesMethod;
+        public static Method valuesMethodPrimitive;
+        public static Method typeMethod;
+        public static JdkMarshaller jdkMarshaller;
+
+        // basic type
+        public static final byte OBJECT = 2;
+        public static final byte BOOLEAN = 4;
+        public static final byte CHAR = 5;
+        public static final byte FLOAT = 6;
+        public static final byte DOUBLE = 7;
+        public static final byte BYTE = 8;
+        public static final byte SHORT = 9;
+        public static final byte INT = 10;
+        public static final byte LONG = 11;
+
+        public static Map<Byte, String> primitiveTypeMap;
 
         static {
             try {
                 objArray = Class.forName("org.netbeans.lib.profiler.heap.ObjectArrayDump");
                 valuesMethod = objArray.getMethod("getValues");
                 valuesMethod.setAccessible(true);
+
+                primitiveArray = Class.forName("org.netbeans.lib.profiler.heap.PrimitiveArrayDump");
+                valuesMethodPrimitive = primitiveArray.getMethod("getValues");
+                valuesMethodPrimitive.setAccessible(true);
+
+                typeMethod = primitiveArray.getDeclaredMethod("getType");
+                typeMethod.setAccessible(true);
+
+                try {
+                    jdkMarshaller = new JdkMarshaller();
+                } catch (Throwable e) {
+                    System.out.println("Marshaller does not initialized."
+                        + "Restart application in oreder to ignite-core.jar to be in classpath,"
+                        +" for availability to deserialize byte[].");
+
+                    e.printStackTrace();
+                }
+
+                primitiveTypeMap = new HashMap<Byte, String>(10);
+                primitiveTypeMap.put(BOOLEAN, "boolean"); //NOI18N
+                primitiveTypeMap.put(CHAR, "char"); //NOI18N
+                primitiveTypeMap.put(FLOAT, "float"); //NOI18N
+                primitiveTypeMap.put(DOUBLE, "double"); //NOI18N
+                primitiveTypeMap.put(BYTE, "byte"); //NOI18N
+                primitiveTypeMap.put(SHORT, "short"); //NOI18N
+                primitiveTypeMap.put(INT, "int"); //NOI18N
+                primitiveTypeMap.put(LONG, "long"); //NOI18N
             }
             catch (ClassNotFoundException e) {
                 e.printStackTrace();
@@ -81,6 +139,25 @@ public class OqlEngine {
             }
 
             return new JsInstaces(Collections.<Instance>emptyList());
+        }
+
+        public Object deserialize(JsInstance byteArray) throws IgniteCheckedException {
+            byte[] ba = new byte[byteArray.attributes.size()];
+
+            for (int i=0; i<ba.length; i++) {
+                assert byteArray.attributes.get(i).type.equals("byte") : "Attribute type "
+                    + byteArray.attributes.get(i).type + " required byte";
+
+                ba[i] = Byte.valueOf(byteArray.attributes.get(i).value);
+            }
+
+            Object result = jdkMarshaller.unmarshal(ba, getClass().getClassLoader());
+
+            System.out.println(ReflectionToStringBuilder.toString(result, ToStringStyle.JSON_STYLE));
+
+            javax.cache.configuration.Factory ff;
+
+            return result;
         }
 
         public long rSize(JsInstance inst) {
