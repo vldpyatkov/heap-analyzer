@@ -76,7 +76,7 @@ public class DumpObj {
             log("Heap loaded. Searching for biggest classes...");
 
             if (cmd.hasOption("oql")) {
-                log("Waiting to input query.");
+                log("Waiting to input query (type <quit> for exit or <reset> for restart context).");
 
                 try (BufferedReader buffer=new BufferedReader(new InputStreamReader(System.in))) {
                     String oqlCmd = null;
